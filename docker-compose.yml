@@ -1,0 +1,15 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: insightlens-db
+    environment:
+      POSTGRES_USER: insightlens
+      POSTGRES_PASSWORD: insightlens
+      POSTGRES_DB: insightlens
+    ports:
+      - "5433:5432"
+    volumes:
+      - insightlens_pgdata:/var/lib/postgresql/data
+
+volumes:
+  insightlens_pgdata:
