@@ -68,7 +68,9 @@
 
 import { Router } from "express";
 import { summarizeContent } from "../services/llm";
+import { embedText } from "../services/embeddings";
 import { pgPool } from "../dbpg";
+import { requireAuth } from "../middleware/auth";
 
 const router = Router();
 
@@ -87,9 +89,10 @@ router.post("/summarize", async (req, res) => {
 });
 
 // POST /api/notes/save
-router.post("/save", async (req, res) => {
+router.post("/save", requireAuth, async (req, res) => {
   const client = await pgPool.connect();
   try {
+    const user = (req as unknown as { user: { id: number } }).user;
     const { title, url, summary, key_insights } = req.body;
 
     if (!url || !summary) {
@@ -109,13 +112,13 @@ router.post("/save", async (req, res) => {
     // Upsert source
     const upsertSource = await client.query(
       `
-      INSERT INTO sources (url, title, domain)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (url)
+      INSERT INTO sources (user_id, url, title, domain)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (user_id, url)
       DO UPDATE SET title = EXCLUDED.title, domain = EXCLUDED.domain
       RETURNING id
       `,
-      [url, title || null, domain]
+      [user.id, url, title || null, domain]
     );
 
     const sourceId = upsertSource.rows[0].id as number;
@@ -123,14 +126,42 @@ router.post("/save", async (req, res) => {
     // Insert note
     const insertNote = await client.query(
       `
-      INSERT INTO notes (source_id, summary, key_insights)
-      VALUES ($1, $2, $3::jsonb)
+      INSERT INTO notes (user_id, source_id, summary, key_insights)
+      VALUES ($1, $2, $3, $4::jsonb)
       RETURNING id
       `,
-      [sourceId, summary, JSON.stringify(key_insights || [])]
+      [user.id, sourceId, summary, JSON.stringify(key_insights || [])]
     );
 
     const noteId = insertNote.rows[0].id as number;
+
+    // Best-effort embeddings: don't fail the request if embedding fails
+    try {
+      const embedInput = [
+        `Summary: ${summary}`,
+        `Key insights: ${(key_insights || []).join(" | ")}`,
+        `Title: ${title || ""}`,
+        `URL: ${url}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+
+      const vector = await embedText(embedInput);
+      if (vector && vector.length > 0) {
+        const vectorStr = `[${vector.join(",")}]`;
+        await client.query(
+          `
+          INSERT INTO note_embeddings (note_id, embedding)
+          VALUES ($1, $2::vector)
+          ON CONFLICT (note_id)
+          DO UPDATE SET embedding = EXCLUDED.embedding, created_at = now()
+          `,
+          [noteId, vectorStr]
+        );
+      }
+    } catch (embedErr: any) {
+      console.warn("Embedding failed:", embedErr?.message || embedErr);
+    }
 
     await client.query("COMMIT");
     res.json({ ok: true, note_id: noteId });
@@ -148,6 +179,127 @@ router.post("/save", async (req, res) => {
     //     await client.query("ROLLBACK");
     //     console.error(err);
     //     res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/notes?limit=50
+router.get("/", requireAuth, async (req, res) => {
+  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const limit = Math.min(Number(req.query.limit) || 50, 200);
+
+  const client = await pgPool.connect();
+  try {
+    const result = await client.query(
+      `
+      SELECT n.id, n.summary, n.key_insights, n.created_at,
+             s.url, s.title, s.domain,
+             (nl.note_id IS NOT NULL) AS liked
+      FROM notes n
+      JOIN sources s ON s.id = n.source_id
+      LEFT JOIN note_likes nl ON nl.note_id = n.id AND nl.user_id = $1
+      WHERE n.user_id = $1
+      ORDER BY n.created_at DESC
+      LIMIT $2
+      `,
+      [userId, limit]
+    );
+    return res.json({ notes: result.rows });
+  } catch (err: any) {
+    console.error("NOTES LIST ERROR:", err?.message || err);
+    return res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /api/notes/:id/like
+router.post("/:id/like", requireAuth, async (req, res) => {
+  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const noteId = Number(req.params.id);
+  if (!Number.isFinite(noteId)) {
+    return res.status(400).json({ error: "Invalid note id" });
+  }
+
+  const client = await pgPool.connect();
+  try {
+    const result = await client.query(
+      `
+      INSERT INTO note_likes (user_id, note_id)
+      SELECT $1, $2
+      WHERE EXISTS (
+        SELECT 1 FROM notes n WHERE n.id = $2 AND n.user_id = $1
+      )
+      ON CONFLICT DO NOTHING
+      RETURNING user_id, note_id
+      `,
+      [userId, noteId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Note not found" });
+    }
+
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error("NOTE LIKE ERROR:", err?.message || err);
+    return res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/notes/:id/like
+router.delete("/:id/like", requireAuth, async (req, res) => {
+  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const noteId = Number(req.params.id);
+  if (!Number.isFinite(noteId)) {
+    return res.status(400).json({ error: "Invalid note id" });
+  }
+
+  const client = await pgPool.connect();
+  try {
+    await client.query(
+      `
+      DELETE FROM note_likes
+      WHERE user_id = $1 AND note_id = $2
+      `,
+      [userId, noteId]
+    );
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error("NOTE UNLIKE ERROR:", err?.message || err);
+    return res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/notes/:id
+router.delete("/:id", requireAuth, async (req, res) => {
+  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const noteId = Number(req.params.id);
+  if (!Number.isFinite(noteId)) {
+    return res.status(400).json({ error: "Invalid note id" });
+  }
+
+  const client = await pgPool.connect();
+  try {
+    const result = await client.query(
+      `
+      DELETE FROM notes
+      WHERE id = $1 AND user_id = $2
+      `,
+      [noteId, userId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Note not found" });
+    }
+    return res.json({ ok: true });
+  } catch (err: any) {
+    console.error("NOTE DELETE ERROR:", err?.message || err);
+    return res.status(500).json({ error: "Internal server error" });
   } finally {
     client.release();
   }

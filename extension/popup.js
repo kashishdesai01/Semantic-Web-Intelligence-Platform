@@ -6,6 +6,14 @@ const statusDiv = document.getElementById("status");
 const resultDiv = document.getElementById("result");
 const summaryTextEl = document.getElementById("summaryText");
 const insightsListEl = document.getElementById("insightsList");
+const authSection = document.getElementById("authSection");
+const authStatus = document.getElementById("authStatus");
+const authUser = document.getElementById("authUser");
+const emailInput = document.getElementById("email");
+const passwordInput = document.getElementById("password");
+const loginButton = document.getElementById("loginButton");
+const logoutButton = document.getElementById("logoutButton");
+const openDashboardButton = document.getElementById("openDashboardButton");
 
 if (
   !summarizeButton ||
@@ -13,7 +21,15 @@ if (
   !statusDiv ||
   !resultDiv ||
   !summaryTextEl ||
-  !insightsListEl
+  !insightsListEl ||
+  !authSection ||
+  !authStatus ||
+  !authUser ||
+  !emailInput ||
+  !passwordInput ||
+  !loginButton ||
+  !logoutButton ||
+  !openDashboardButton
 ) {
   console.error(
     "Popup DOM elements missing. Check popup.html IDs: summarizeButton, saveButton, status, result, summaryText, insightsList."
@@ -21,6 +37,48 @@ if (
 }
 
 let lastPayload = null;
+let authToken = null;
+let authEmail = null;
+let authPromptVisible = false;
+
+function setAuthUI() {
+  if (authToken) {
+    authSection.classList.add("hidden");
+    authStatus.classList.remove("hidden");
+    authUser.textContent = authEmail ? `Signed in as ${authEmail}` : "Signed in";
+  } else {
+    authStatus.classList.add("hidden");
+    if (authPromptVisible) {
+      authSection.classList.remove("hidden");
+    } else {
+      authSection.classList.add("hidden");
+    }
+    authUser.textContent = "";
+  }
+}
+
+function getStoredAuth() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(["authToken", "authEmail"], (items) => {
+      resolve({
+        token: items.authToken || null,
+        email: items.authEmail || null,
+      });
+    });
+  });
+}
+
+function storeAuth(token, email) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ authToken: token, authEmail: email }, resolve);
+  });
+}
+
+function clearAuth() {
+  return new Promise((resolve) => {
+    chrome.storage.local.remove(["authToken", "authEmail"], resolve);
+  });
+}
 
 function setStatus(text, isError = false) {
   statusDiv.textContent = text;
@@ -90,6 +148,61 @@ function sendMessageToBackground(message) {
     });
   });
 }
+
+async function loadAuth() {
+  const stored = await getStoredAuth();
+  authToken = stored.token;
+  authEmail = stored.email;
+  setAuthUI();
+}
+
+function showAuthPrompt() {
+  authPromptVisible = true;
+  setAuthUI();
+}
+
+loginButton.addEventListener("click", async () => {
+  const email = emailInput.value.trim();
+  const password = passwordInput.value;
+  if (!email || !password) {
+    setStatus("Email and password required.", true);
+    return;
+  }
+
+  setStatus("Signing in...");
+  try {
+    const response = await sendMessageToBackground({
+      type: "AUTH_LOGIN",
+      payload: { email, password },
+    });
+
+    if (!response?.ok) {
+      setStatus(response?.error || "Login failed", true);
+      return;
+    }
+
+    authToken = response.data.token;
+    authEmail = response.data.user?.email || email;
+    await storeAuth(authToken, authEmail);
+    setAuthUI();
+    setStatus("Signed in.");
+  } catch (err) {
+    console.error("Login error:", err);
+    setStatus("Login failed.", true);
+  }
+});
+
+logoutButton.addEventListener("click", async () => {
+  await clearAuth();
+  authToken = null;
+  authEmail = null;
+  setAuthUI();
+  setStatus("Signed out.");
+});
+
+openDashboardButton.addEventListener("click", async () => {
+  chrome.tabs.create({ url: "http://localhost:3000" });
+});
 
 summarizeButton.addEventListener("click", async () => {
   console.log("Summarize clicked");
@@ -171,6 +284,12 @@ summarizeButton.addEventListener("click", async () => {
 saveButton.addEventListener("click", async () => {
   if (!lastPayload) return;
 
+  if (!authToken) {
+    showAuthPrompt();
+    setStatus("Please sign in to save notes.", true);
+    return;
+  }
+
   setStatus("Saving...");
 
   let response;
@@ -194,3 +313,5 @@ saveButton.addEventListener("click", async () => {
   setStatus(`Saved. Note ID: ${response.data.note_id}`);
   saveButton.disabled = true;
 });
+
+loadAuth();

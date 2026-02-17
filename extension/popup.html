@@ -9,6 +9,28 @@
     <div id="app">
       <h2>InsightLens</h2>
 
+      <div id="authSection" class="hidden">
+        <h4>Sign in</h4>
+        <div class="field">
+          <label for="email">Email</label>
+          <input id="email" type="email" placeholder="you@example.com" />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input id="password" type="password" placeholder="••••••••" />
+        </div>
+        <button id="loginButton">Sign in</button>
+        <button id="openDashboardButton" class="secondary">Open dashboard</button>
+        <p class="muted">Sign in only to save notes. Summaries work without it.</p>
+      </div>
+
+      <div id="authStatus" class="hidden">
+        <div class="row">
+          <span id="authUser">Signed in</span>
+          <button id="logoutButton" class="secondary">Sign out</button>
+        </div>
+      </div>
+
       <button id="summarizeButton">Summarize this page</button>
 
       <div id="status"></div>
