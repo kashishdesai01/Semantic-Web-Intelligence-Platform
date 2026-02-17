@@ -20,6 +20,11 @@ button {
   cursor: pointer;
 }
 
+.secondary {
+  background: transparent;
+  border: 1px solid #ccc;
+}
+
 #status {
   margin-top: 8px;
   font-size: 13px;
@@ -35,4 +40,29 @@ button {
 
 #summaryText {
   white-space: pre-wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.field input {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.muted {
+  color: #666;
+  font-size: 12px;
+  margin-top: 6px;
 }
