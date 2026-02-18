@@ -214,6 +214,121 @@ router.get("/", requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/notes/search?q=...&min_similarity=0.78&collection_id=...
+router.get("/search", requireAuth, async (req, res) => {
+  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const q = String(req.query.q || "").trim();
+  const limit = Math.min(Number(req.query.limit) || 10, 50);
+  const minSimilarity = Math.min(
+    Math.max(Number(req.query.min_similarity) || 0, 0),
+    0.99
+  );
+  const collectionId = req.query.collection_id
+    ? Number(req.query.collection_id)
+    : null;
+
+  if (!q) {
+    return res.status(400).json({ error: "q is required" });
+  }
+  if (collectionId !== null && !Number.isFinite(collectionId)) {
+    return res.status(400).json({ error: "Invalid collection_id" });
+  }
+
+  const vector = await embedText(q);
+  if (!vector || vector.length === 0) {
+    return res.status(500).json({ error: "Embedding failed" });
+  }
+
+  const vectorStr = `[${vector.join(",")}]`;
+  const client = await pgPool.connect();
+  try {
+    const distanceThreshold = minSimilarity > 0 ? 1 - minSimilarity : null;
+
+    let result;
+    if (collectionId) {
+      result = await client.query(
+        `
+        SELECT DISTINCT ON (n.id)
+               n.id, n.summary, n.key_insights, n.created_at,
+               s.url, s.title, s.domain,
+               (ne.embedding <=> $2::vector) AS distance
+        FROM note_embeddings ne
+        JOIN notes n ON n.id = ne.note_id
+        JOIN sources s ON s.id = n.source_id
+        JOIN collection_notes cn ON cn.note_id = n.id
+        WHERE n.user_id = $1
+          AND ($3::float8 IS NULL OR (ne.embedding <=> $2::vector) <= $3)
+          AND cn.collection_id = $4
+        ORDER BY n.id, distance ASC
+        LIMIT $5
+        `,
+        [userId, vectorStr, distanceThreshold, collectionId, limit]
+      );
+    } else {
+      result = await client.query(
+        `
+        SELECT n.id, n.summary, n.key_insights, n.created_at,
+               s.url, s.title, s.domain,
+               (ne.embedding <=> $2::vector) AS distance
+        FROM note_embeddings ne
+        JOIN notes n ON n.id = ne.note_id
+        JOIN sources s ON s.id = n.source_id
+        WHERE n.user_id = $1
+          AND ($3::float8 IS NULL OR (ne.embedding <=> $2::vector) <= $3)
+        ORDER BY distance ASC
+        LIMIT $4
+        `,
+        [userId, vectorStr, distanceThreshold, limit]
+      );
+    }
+
+    // Fallback: if threshold is too strict, retry without it
+    if (result.rowCount === 0 && distanceThreshold !== null) {
+      if (collectionId) {
+        result = await client.query(
+          `
+          SELECT DISTINCT ON (n.id)
+                 n.id, n.summary, n.key_insights, n.created_at,
+                 s.url, s.title, s.domain,
+                 (ne.embedding <=> $2::vector) AS distance
+          FROM note_embeddings ne
+          JOIN notes n ON n.id = ne.note_id
+          JOIN sources s ON s.id = n.source_id
+          JOIN collection_notes cn ON cn.note_id = n.id
+          WHERE n.user_id = $1
+            AND cn.collection_id = $3
+          ORDER BY n.id, distance ASC
+          LIMIT $4
+          `,
+          [userId, vectorStr, collectionId, limit]
+        );
+      } else {
+        result = await client.query(
+          `
+          SELECT n.id, n.summary, n.key_insights, n.created_at,
+                 s.url, s.title, s.domain,
+                 (ne.embedding <=> $2::vector) AS distance
+          FROM note_embeddings ne
+          JOIN notes n ON n.id = ne.note_id
+          JOIN sources s ON s.id = n.source_id
+          WHERE n.user_id = $1
+          ORDER BY distance ASC
+          LIMIT $3
+          `,
+          [userId, vectorStr, limit]
+        );
+      }
+    }
+    res.setHeader("Cache-Control", "no-store");
+    return res.json({ results: result.rows });
+  } catch (err: any) {
+    console.error("NOTES SEARCH ERROR:", err?.message || err);
+    return res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+});
+
 // POST /api/notes/:id/like
 router.post("/:id/like", requireAuth, async (req, res) => {
   const userId = (req as unknown as { user: { id: number } }).user.id;

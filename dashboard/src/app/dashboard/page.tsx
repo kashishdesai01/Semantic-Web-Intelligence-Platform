@@ -25,6 +25,7 @@ type Source = {
 type NotesPerDay = { day: string; count: number };
 type TopDomain = { domain: string; count: number };
 type Collection = { id: number; name: string; created_at: string };
+type SearchResult = Note & { distance: number };
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -48,6 +49,11 @@ export default function DashboardPage() {
   const [collectionPickerValue, setCollectionPickerValue] = useState<
     number | ""
   >("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [searchCollectionId, setSearchCollectionId] = useState<number | "">("");
 
   useEffect(() => {
     if (!getToken()) {
@@ -190,6 +196,33 @@ export default function DashboardPage() {
       setActionMessage("Note deleted.");
     } catch (err: any) {
       setError(err.message || "Failed to delete note");
+    }
+  }
+
+  async function runSearch(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setHasSearched(true);
+    setActionMessage(null);
+    setError(null);
+    try {
+      const params = new URLSearchParams();
+      params.set("q", searchQuery.trim());
+      params.set("limit", "5");
+      params.set("min_similarity", "0.78");
+      if (searchCollectionId) {
+        params.set("collection_id", String(searchCollectionId));
+      }
+      const res = await apiFetch<{ results: SearchResult[] }>(
+        `/api/notes/search?${params.toString()}`
+      );
+      setSearchResults(res.results || []);
+      setActionMessage("Search complete.");
+    } catch (err: any) {
+      setError(err.message || "Search failed");
+    } finally {
+      setSearching(false);
     }
   }
 
@@ -347,6 +380,67 @@ export default function DashboardPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+
+        <div className="panel">
+          <h2>Semantic search</h2>
+          <form onSubmit={runSearch} style={{ display: "flex", gap: 12 }}>
+            <input
+              style={{ flex: 1 }}
+              placeholder="Search your knowledge base..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+            <button className="btn primary" type="submit" disabled={searching}>
+              {searching ? "Searching..." : "Search"}
+            </button>
+          </form>
+          <div style={{ display: "flex", gap: 12, marginTop: 12, flexWrap: "wrap" }}>
+            <label className="muted">Collection</label>
+            <select
+              value={searchCollectionId}
+              onChange={(e) =>
+                setSearchCollectionId(
+                  e.target.value ? Number(e.target.value) : ""
+                )
+              }
+            >
+              <option value="">All collections</option>
+              {collections.map((collection) => (
+                <option key={collection.id} value={collection.id}>
+                  {collection.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="list" style={{ marginTop: 12 }}>
+            {searchResults.length === 0 ? (
+              <p className="muted">
+                {hasSearched
+                  ? "No results above relevance threshold. Try another query."
+                  : "No results yet."}
+              </p>
+            ) : (
+              searchResults.map((note) => (
+                <div key={note.id} className="note">
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {note.domain ? <span className="pill">{note.domain}</span> : null}
+                    <span className="pill">
+                      Similarity {(1 - Number(note.distance)).toFixed(2)}
+                    </span>
+                  </div>
+                  <p style={{ marginTop: 8 }}>{note.summary}</p>
+                  <div className="note-meta">
+                    <span>{note.title || "Untitled"}</span>
+                    <span>{new Date(note.created_at).toLocaleString()}</span>
+                    <a href={note.url} target="_blank" rel="noreferrer">
+                      Open
+                    </a>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 
