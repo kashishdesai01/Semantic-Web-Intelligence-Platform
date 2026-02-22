@@ -93,7 +93,7 @@ router.post("/save", requireAuth, async (req, res) => {
   const client = await pgPool.connect();
   try {
     const user = (req as unknown as { user: { id: number } }).user;
-    const { title, url, summary, key_insights } = req.body;
+    const { title, url, summary, key_insights, highlights } = req.body;
 
     if (!url || !summary) {
       return res.status(400).json({ error: "url and summary are required" });
@@ -126,11 +126,17 @@ router.post("/save", requireAuth, async (req, res) => {
     // Insert note
     const insertNote = await client.query(
       `
-      INSERT INTO notes (user_id, source_id, summary, key_insights)
-      VALUES ($1, $2, $3, $4::jsonb)
+      INSERT INTO notes (user_id, source_id, summary, key_insights, highlights)
+      VALUES ($1, $2, $3, $4::jsonb, $5::jsonb)
       RETURNING id
       `,
-      [user.id, sourceId, summary, JSON.stringify(key_insights || [])]
+      [
+        user.id,
+        sourceId,
+        summary,
+        JSON.stringify(key_insights || []),
+        JSON.stringify(highlights || []),
+      ]
     );
 
     const noteId = insertNote.rows[0].id as number;
@@ -193,7 +199,7 @@ router.get("/", requireAuth, async (req, res) => {
   try {
     const result = await client.query(
       `
-      SELECT n.id, n.summary, n.key_insights, n.created_at,
+      SELECT n.id, n.summary, n.key_insights, n.highlights, n.created_at,
              s.url, s.title, s.domain,
              (nl.note_id IS NOT NULL) AS liked
       FROM notes n
@@ -208,6 +214,38 @@ router.get("/", requireAuth, async (req, res) => {
     return res.json({ notes: result.rows });
   } catch (err: any) {
     console.error("NOTES LIST ERROR:", err?.message || err);
+    return res.status(500).json({ error: "Internal server error" });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/notes/:id
+router.get("/:id", requireAuth, async (req, res) => {
+  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const noteId = Number(req.params.id);
+  if (!Number.isFinite(noteId)) {
+    return res.status(400).json({ error: "Invalid note id" });
+  }
+
+  const client = await pgPool.connect();
+  try {
+    const result = await client.query(
+      `
+      SELECT n.id, n.summary, n.key_insights, n.highlights, n.created_at,
+             s.url, s.title, s.domain
+      FROM notes n
+      JOIN sources s ON s.id = n.source_id
+      WHERE n.user_id = $1 AND n.id = $2
+      `,
+      [userId, noteId]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Note not found" });
+    }
+    return res.json({ note: result.rows[0] });
+  } catch (err: any) {
+    console.error("NOTE GET ERROR:", err?.message || err);
     return res.status(500).json({ error: "Internal server error" });
   } finally {
     client.release();
@@ -249,7 +287,7 @@ router.get("/search", requireAuth, async (req, res) => {
       result = await client.query(
         `
         SELECT DISTINCT ON (n.id)
-               n.id, n.summary, n.key_insights, n.created_at,
+               n.id, n.summary, n.key_insights, n.highlights, n.created_at,
                s.url, s.title, s.domain,
                (ne.embedding <=> $2::vector) AS distance
         FROM note_embeddings ne
@@ -267,7 +305,7 @@ router.get("/search", requireAuth, async (req, res) => {
     } else {
       result = await client.query(
         `
-        SELECT n.id, n.summary, n.key_insights, n.created_at,
+        SELECT n.id, n.summary, n.key_insights, n.highlights, n.created_at,
                s.url, s.title, s.domain,
                (ne.embedding <=> $2::vector) AS distance
         FROM note_embeddings ne
@@ -288,7 +326,7 @@ router.get("/search", requireAuth, async (req, res) => {
         result = await client.query(
           `
           SELECT DISTINCT ON (n.id)
-                 n.id, n.summary, n.key_insights, n.created_at,
+                 n.id, n.summary, n.key_insights, n.highlights, n.created_at,
                  s.url, s.title, s.domain,
                  (ne.embedding <=> $2::vector) AS distance
           FROM note_embeddings ne
@@ -305,7 +343,7 @@ router.get("/search", requireAuth, async (req, res) => {
       } else {
         result = await client.query(
           `
-          SELECT n.id, n.summary, n.key_insights, n.created_at,
+          SELECT n.id, n.summary, n.key_insights, n.highlights, n.created_at,
                  s.url, s.title, s.domain,
                  (ne.embedding <=> $2::vector) AS distance
           FROM note_embeddings ne

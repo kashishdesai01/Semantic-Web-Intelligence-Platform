@@ -6,6 +6,17 @@ const router = Router();
 
 router.get("/summary", requireAuth, async (req, res) => {
   const userId = (req as unknown as { user: { id: number } }).user.id;
+  const range = String(req.query.range || "month");
+  const days =
+    range === "week"
+      ? 7
+      : range === "month"
+        ? 30
+        : range === "6months"
+          ? 180
+          : range === "year"
+            ? 365
+            : 30;
   const client = await pgPool.connect();
   try {
     const totals = await client.query(
@@ -24,11 +35,11 @@ router.get("/summary", requireAuth, async (req, res) => {
         COUNT(*) AS count
       FROM notes
       WHERE user_id = $1
-        AND created_at >= now() - interval '30 days'
+        AND created_at >= now() - ($2::text || ' days')::interval
       GROUP BY day
       ORDER BY day ASC
       `,
-      [userId]
+      [userId, String(days)]
     );
 
     const topDomains = await client.query(
@@ -37,13 +48,13 @@ router.get("/summary", requireAuth, async (req, res) => {
       FROM notes n
       JOIN sources s ON s.id = n.source_id
       WHERE n.user_id = $1
-        AND n.created_at >= now() - interval '30 days'
+        AND n.created_at >= now() - ($2::text || ' days')::interval
         AND s.domain IS NOT NULL
       GROUP BY s.domain
       ORDER BY count DESC
       LIMIT 10
       `,
-      [userId]
+      [userId, String(days)]
     );
 
     const recentNotes = await client.query(

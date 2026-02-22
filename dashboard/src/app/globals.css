@@ -236,7 +236,7 @@ p {
 
 .bar {
   display: grid;
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: 140px 1fr 80px;
   align-items: center;
   gap: 12px;
 }

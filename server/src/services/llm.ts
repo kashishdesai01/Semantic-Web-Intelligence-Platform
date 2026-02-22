@@ -13,6 +13,7 @@ export type SummarizeInput = {
 export type SummarizeResult = {
   summary: string;
   key_insights: string[];
+  highlights: string[];
 };
 
 export async function summarizeContent(
@@ -40,12 +41,14 @@ Given the title, URL, and raw text content of a page, you must return a STRICT J
 
 {
   "summary": string,          // 4–7 sentences, clear and neutral
-  "key_insights": string[]    // 3–7 bullet-level insights, concise
+  "key_insights": string[],   // 3–7 bullet-level insights, concise
+  "highlights": string[]      // 3–6 exact short quotes (<= 20 words each)
 }
 
 Rules:
 - Output VALID JSON ONLY. No extra text, no markdown, no comments.
 - "key_insights" should capture the most important facts, arguments, or takeaways.
+- "highlights" must be verbatim snippets from the content.
 - If the content is noisy (navigation, ads), ignore that and focus on the main article.
 
 Title: ${title || "Untitled"}
@@ -72,15 +75,21 @@ ${content}
     return {
       summary: raw,
       key_insights: [],
+      highlights: [],
     };
   }
 
   // Basic validation
-  if (!parsed.summary || !Array.isArray(parsed.key_insights)) {
+  if (
+    !parsed.summary ||
+    !Array.isArray(parsed.key_insights) ||
+    !Array.isArray(parsed.highlights)
+  ) {
     console.error("LLM JSON missing fields, raw:", raw);
     return {
       summary: parsed.summary || raw,
       key_insights: parsed.key_insights || [],
+      highlights: parsed.highlights || [],
     };
   }
 
@@ -103,5 +112,6 @@ function fallbackSummary(input: SummarizeInput): SummarizeResult {
       "This is a stub insight. Replace with real LLM output.",
       "Set OPENAI_API_KEY in the server .env file to enable real summaries.",
     ],
+    highlights: [],
   };
 }

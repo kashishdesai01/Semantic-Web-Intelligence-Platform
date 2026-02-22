@@ -7,7 +7,13 @@
   </head>
   <body>
     <div id="app">
-      <h2>InsightLens</h2>
+      <div class="header">
+        <div>
+          <h2>InsightLens</h2>
+          <p class="sub">Summaries, insights, and saved knowledge.</p>
+        </div>
+        <span class="badge">Beta</span>
+      </div>
 
       <div id="authSection" class="hidden">
         <h4>Sign in</h4>
@@ -31,7 +37,10 @@
         </div>
       </div>
 
-      <button id="summarizeButton">Summarize this page</button>
+      <div class="actions">
+        <button id="summarizeButton" class="primary">Summarize this page</button>
+        <button id="saveButton" disabled>Save note</button>
+      </div>
 
       <div id="status"></div>
 
@@ -41,8 +50,10 @@
 
         <h4>Key insights</h4>
         <ul id="insightsList"></ul>
+
+        <h4>Highlights</h4>
+        <ul id="highlightsList"></ul>
       </div>
-      <button id="saveButton" disabled>Save note</button>
     </div>
 
     <script src="popup.js"></script>
