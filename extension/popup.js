@@ -6,6 +6,7 @@ const statusDiv = document.getElementById("status");
 const resultDiv = document.getElementById("result");
 const summaryTextEl = document.getElementById("summaryText");
 const insightsListEl = document.getElementById("insightsList");
+const highlightsListEl = document.getElementById("highlightsList");
 const authSection = document.getElementById("authSection");
 const authStatus = document.getElementById("authStatus");
 const authUser = document.getElementById("authUser");
@@ -22,6 +23,7 @@ if (
   !resultDiv ||
   !summaryTextEl ||
   !insightsListEl ||
+  !highlightsListEl ||
   !authSection ||
   !authStatus ||
   !authUser ||
@@ -85,14 +87,21 @@ function setStatus(text, isError = false) {
   statusDiv.style.color = isError ? "red" : "black";
 }
 
-function showResult(summary, keyInsights) {
+function showResult(summary, keyInsights, highlights) {
   summaryTextEl.textContent = summary || "";
   insightsListEl.innerHTML = "";
+  highlightsListEl.innerHTML = "";
 
   (keyInsights || []).forEach((insight) => {
     const li = document.createElement("li");
     li.textContent = insight;
     insightsListEl.appendChild(li);
+  });
+
+  (highlights || []).forEach((highlight) => {
+    const li = document.createElement("li");
+    li.textContent = highlight;
+    highlightsListEl.appendChild(li);
   });
 
   resultDiv.classList.remove("hidden");
@@ -268,7 +277,7 @@ summarizeButton.addEventListener("click", async () => {
   }
 
   const data = response.data;
-  showResult(data.summary, data.key_insights || []);
+  showResult(data.summary, data.key_insights || [], data.highlights || []);
   setStatus("Done.");
 
   lastPayload = {
@@ -276,6 +285,7 @@ summarizeButton.addEventListener("click", async () => {
     url: content.url,
     summary: data.summary,
     key_insights: data.key_insights || [],
+    highlights: data.highlights || [],
   };
 
   saveButton.disabled = false;

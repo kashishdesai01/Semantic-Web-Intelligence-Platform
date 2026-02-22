@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { pollJob } from "@/lib/jobs";
 import { useRouter } from "next/navigation";
 
 type Totals = { total_notes: number; total_sources: number };
@@ -15,31 +16,21 @@ type Note = {
   domain: string | null;
   liked: boolean;
 };
-type Source = {
-  id: number;
-  url: string;
-  title: string | null;
-  domain: string | null;
-  first_seen_at: string;
-};
-type NotesPerDay = { day: string; count: number };
-type TopDomain = { domain: string; count: number };
 type Collection = { id: number; name: string; created_at: string };
 type SearchResult = Note & { distance: number };
+type Digest = {
+  summary: string;
+  themes: { title: string; summary: string; note_ids: number[] }[];
+};
 
 export default function DashboardPage() {
   const router = useRouter();
   const [totals, setTotals] = useState<Totals | null>(null);
   const [notes, setNotes] = useState<Note[]>([]);
-  const [sources, setSources] = useState<Source[]>([]);
-  const [notesPerDay, setNotesPerDay] = useState<NotesPerDay[]>([]);
-  const [topDomains, setTopDomains] = useState<TopDomain[]>([]);
   const [collections, setCollections] = useState<Collection[]>([]);
-  const [collectionName, setCollectionName] = useState("");
   const [selectedCollectionId, setSelectedCollectionId] = useState<number | null>(
     null
   );
-  const [collectionNotes, setCollectionNotes] = useState<Note[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [showAllNotes, setShowAllNotes] = useState(false);
@@ -53,6 +44,8 @@ export default function DashboardPage() {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+  const [digest, setDigest] = useState<Digest | null>(null);
+  const [digestLoading, setDigestLoading] = useState(false);
   const [searchCollectionId, setSearchCollectionId] = useState<number | "">("");
 
   useEffect(() => {
@@ -64,33 +57,16 @@ export default function DashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    if (!selectedCollectionId) {
-      setCollectionNotes([]);
-      return;
-    }
-    loadCollectionNotes(selectedCollectionId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCollectionId]);
 
   async function loadAll() {
     setError(null);
     try {
       const analytics = await apiFetch<{
         totals: Totals;
-        notes_per_day: NotesPerDay[];
-        top_domains: TopDomain[];
         recent_notes: Note[];
       }>("/api/analytics/summary");
       setTotals(analytics.totals);
-      setNotesPerDay(analytics.notes_per_day || []);
-      setTopDomains(analytics.top_domains || []);
       setNotes(analytics.recent_notes || []);
-
-      const sourcesRes = await apiFetch<{ sources: Source[] }>(
-        "/api/sources?limit=10"
-      );
-      setSources(sourcesRes.sources || []);
 
       const collectionsRes = await apiFetch<{ collections: Collection[] }>(
         "/api/collections"
@@ -103,14 +79,6 @@ export default function DashboardPage() {
       setError(err.message || "Failed to load dashboard data");
     }
   }
-
-  const maxNotesPerDay = useMemo(() => {
-    return Math.max(1, ...notesPerDay.map((row) => Number(row.count) || 0));
-  }, [notesPerDay]);
-
-  const maxDomainCount = useMemo(() => {
-    return Math.max(1, ...topDomains.map((row) => Number(row.count) || 0));
-  }, [topDomains]);
 
   async function toggleLike(note: Note) {
     try {
@@ -127,34 +95,6 @@ export default function DashboardPage() {
     }
   }
 
-  async function createCollection() {
-    if (!collectionName.trim()) return;
-    try {
-      setActionMessage(null);
-      const res = await apiFetch<{ collection: Collection }>("/api/collections", {
-        method: "POST",
-        body: JSON.stringify({ name: collectionName.trim() }),
-      });
-      setCollections((prev) => [res.collection, ...prev]);
-      setCollectionName("");
-      setSelectedCollectionId(res.collection.id);
-      setActionMessage("Collection created.");
-    } catch (err: any) {
-      setError(err.message || "Failed to create collection");
-    }
-  }
-
-  async function loadCollectionNotes(collectionId: number) {
-    try {
-      const res = await apiFetch<{ notes: Note[] }>(
-        `/api/collections/${collectionId}/notes`
-      );
-      setCollectionNotes(res.notes || []);
-    } catch (err: any) {
-      setError(err.message || "Failed to load collection notes");
-    }
-  }
-
   async function addNoteToCollection(noteId: number, collectionId: number) {
     if (!collectionId) return;
     try {
@@ -164,26 +104,8 @@ export default function DashboardPage() {
         body: JSON.stringify({ note_id: noteId }),
       });
       setActionMessage("Note added to collection.");
-      if (selectedCollectionId) {
-        await loadCollectionNotes(selectedCollectionId);
-      }
     } catch (err: any) {
       setError(err.message || "Failed to add note to collection");
-    }
-  }
-
-  async function deleteCollection(collectionId: number) {
-    try {
-      setActionMessage(null);
-      await apiFetch(`/api/collections/${collectionId}`, { method: "DELETE" });
-      setCollections((prev) => prev.filter((c) => c.id !== collectionId));
-      if (selectedCollectionId === collectionId) {
-        setSelectedCollectionId(null);
-        setCollectionNotes([]);
-      }
-      setActionMessage("Collection deleted.");
-    } catch (err: any) {
-      setError(err.message || "Failed to delete collection");
     }
   }
 
@@ -192,7 +114,6 @@ export default function DashboardPage() {
       setActionMessage(null);
       await apiFetch(`/api/notes/${noteId}`, { method: "DELETE" });
       setNotes((prev) => prev.filter((n) => n.id !== noteId));
-      setCollectionNotes((prev) => prev.filter((n) => n.id !== noteId));
       setActionMessage("Note deleted.");
     } catch (err: any) {
       setError(err.message || "Failed to delete note");
@@ -223,6 +144,28 @@ export default function DashboardPage() {
       setError(err.message || "Search failed");
     } finally {
       setSearching(false);
+    }
+  }
+
+  async function loadWeeklyDigest() {
+    setDigestLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch<any>("/api/digest/weekly");
+      if (res?.status === "queued") {
+        pollJob<Digest>(
+          apiFetch,
+          res.job_id,
+          (result) => setDigest(result),
+          (message) => setError(message)
+        );
+      } else {
+        setDigest(res);
+      }
+    } catch (err: any) {
+      setError(err.message || "Failed to load digest");
+    } finally {
+      setDigestLoading(false);
     }
   }
 
@@ -260,131 +203,7 @@ export default function DashboardPage() {
         </div>
 
         <div className="panel">
-          <h2>Reading pulse (30 days)</h2>
-          <div className="chart">
-            {notesPerDay.length === 0 ? (
-              <p className="muted">No notes yet. Start summarizing!</p>
-            ) : (
-              notesPerDay.map((row) => (
-                <div className="bar" key={row.day}>
-                  <span className="muted">
-                    {new Date(row.day).toLocaleDateString()}
-                  </span>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill"
-                      style={{
-                        width: `${(Number(row.count) / maxNotesPerDay) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="panel">
-          <h2>Top domains</h2>
-          <div className="chart">
-            {topDomains.length === 0 ? (
-              <p className="muted">No domains yet.</p>
-            ) : (
-              topDomains.map((row) => (
-                <div className="bar" key={row.domain}>
-                  <span className="muted">{row.domain}</span>
-                  <div className="bar-track">
-                    <div
-                      className="bar-fill"
-                      style={{
-                        width: `${(Number(row.count) / maxDomainCount) * 100}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="panel">
-          <h2>Collections</h2>
-          <div style={{ display: "flex", gap: 12, marginBottom: 12 }}>
-            <input
-              style={{ flex: 1 }}
-              placeholder="New collection name"
-              value={collectionName}
-              onChange={(e) => setCollectionName(e.target.value)}
-            />
-            <button className="btn primary" onClick={createCollection}>
-              Create
-            </button>
-          </div>
-          <div className="list">
-            {collections.length === 0 ? (
-              <p className="muted">No collections yet.</p>
-            ) : (
-              collections.map((collection) => (
-                <div key={collection.id} className="note">
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <strong>{collection.name}</strong>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <span className="muted">
-                        {new Date(collection.created_at).toLocaleDateString()}
-                      </span>
-                      <button
-                        className="btn ghost"
-                        onClick={() => deleteCollection(collection.id)}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                  <label className="muted">
-                    <input
-                      type="radio"
-                      name="collection"
-                      value={collection.id}
-                      checked={selectedCollectionId === collection.id}
-                      onChange={() => setSelectedCollectionId(collection.id)}
-                      style={{ marginRight: 8 }}
-                    />
-                    Use this collection when saving notes
-                  </label>
-                </div>
-              ))
-            )}
-          </div>
-          <div style={{ marginTop: 16 }}>
-            <h3>Selected collection notes</h3>
-            <div className="list">
-              {selectedCollectionId && collectionNotes.length === 0 ? (
-                <p className="muted">No notes in this collection yet.</p>
-              ) : null}
-              {collectionNotes.map((note) => (
-                <div key={note.id} className="note">
-                  <strong>{note.title || "Untitled"}</strong>
-                  <p style={{ marginTop: 6 }}>{note.summary}</p>
-                  <div className="note-meta">
-                    <span>{note.domain || "Unknown domain"}</span>
-                    <span>{new Date(note.created_at).toLocaleString()}</span>
-                    <a href={note.url} target="_blank" rel="noreferrer">
-                      Open
-                    </a>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <button className="btn ghost" onClick={() => deleteNote(note.id)}>
-                      Delete
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="panel">
-          <h2>Semantic search</h2>
+          <h2>Search notes</h2>
           <form onSubmit={runSearch} style={{ display: "flex", gap: 12 }}>
             <input
               style={{ flex: 1 }}
@@ -445,12 +264,55 @@ export default function DashboardPage() {
         </div>
 
         <div className="panel">
+          <h2>Weekly digest</h2>
+          <button className="btn primary" onClick={loadWeeklyDigest} disabled={digestLoading}>
+            {digestLoading ? "Generating..." : "Generate digest"}
+          </button>
+          {digest ? (
+            <div style={{ marginTop: 12 }}>
+              <p>{digest.summary}</p>
+              <div className="list">
+                {digest.themes.map((theme, idx) => (
+                  <div key={idx} className="note">
+                    <strong>{theme.title}</strong>
+                    <p style={{ marginTop: 6 }}>{theme.summary}</p>
+                    <div className="note-meta">
+                      <span>Notes: {theme.note_ids.join(", ")}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="panel">
+          <h2>Collections</h2>
+          <div className="list">
+            {collections.length === 0 ? (
+              <p className="muted">No collections yet.</p>
+            ) : (
+              collections.map((collection) => (
+                <div key={collection.id} className="note">
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <strong>{collection.name}</strong>
+                    <span className="muted">
+                      {new Date(collection.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="panel">
           <h2>Recent notes</h2>
           <div className="list">
             {notes.length === 0 ? (
               <p className="muted">No notes yet.</p>
             ) : (
-              (showAllNotes ? notes : notes.slice(0, 3)).map((note) => (
+              (showAllNotes ? notes : notes.slice(0, 5)).map((note) => (
                 <div key={note.id} className="note">
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {note.domain ? <span className="pill">{note.domain}</span> : null}
@@ -533,28 +395,6 @@ export default function DashboardPage() {
               {showAllNotes ? "Show recent only" : "See all notes"}
             </button>
           ) : null}
-        </div>
-
-        <div className="panel">
-          <h2>Recent sources</h2>
-          <div className="list">
-            {sources.length === 0 ? (
-              <p className="muted">No sources yet.</p>
-            ) : (
-              sources.map((source) => (
-                <div key={source.id} className="note">
-                  <strong>{source.title || source.domain || "Untitled"}</strong>
-                  <div className="note-meta">
-                    <span>{source.domain || "Unknown domain"}</span>
-                    <span>{new Date(source.first_seen_at).toLocaleString()}</span>
-                    <a href={source.url} target="_blank" rel="noreferrer">
-                      Open
-                    </a>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
         </div>
       </div>
     </div>

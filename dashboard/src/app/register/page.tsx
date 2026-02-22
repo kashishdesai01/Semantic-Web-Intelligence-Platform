@@ -60,6 +60,9 @@ export default function RegisterPage() {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
+          <p className="muted">
+            Must be 8+ chars with 1 uppercase, 1 number, 1 special character.
+          </p>
           {error ? <p className="muted">{error}</p> : null}
           <button className="btn primary" type="submit" disabled={loading}>
             {loading ? "Creating account..." : "Create account"}
