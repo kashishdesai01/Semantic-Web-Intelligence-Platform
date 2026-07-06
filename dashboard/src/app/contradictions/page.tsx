@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import { pollJob } from "@/lib/jobs";
-import { useRouter } from "next/navigation";
+import PageShell from "@/components/layout/PageShell";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 
 type Contradiction = {
   claim_a: string;
@@ -12,24 +13,22 @@ type Contradiction = {
 };
 
 export default function ContradictionsPage() {
-  const router = useRouter();
+  useRequireAuth();
   const [items, setItems] = useState<Contradiction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pollCancelRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-    }
-  }, [router]);
+  useEffect(() => () => pollCancelRef.current?.(), []);
 
   async function loadContradictions() {
     setLoading(true);
     setError(null);
+    pollCancelRef.current?.();
     try {
       const res = await apiFetch<any>("/api/contradictions");
       if (res?.status === "queued") {
-        pollJob<{ contradictions: Contradiction[] }>(
+        pollCancelRef.current = pollJob<{ contradictions: Contradiction[] }>(
           apiFetch,
           res.job_id,
           (result) => setItems(result.contradictions || []),
@@ -45,54 +44,40 @@ export default function ContradictionsPage() {
     }
   }
 
-  function logout() {
-    clearToken();
-    router.replace("/login");
-  }
-
   return (
-    <div className="page">
-      <div style={{ width: "min(1100px, 100%)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <h1>Contradictions</h1>
-          <button className="btn ghost" onClick={logout}>
-            Sign out
-          </button>
-        </div>
+    <PageShell title="Contradictions">
+      {error ? <p className="muted">{error}</p> : null}
 
-        {error ? <p className="muted">{error}</p> : null}
+      <div className="panel">
+        <button
+          className="btn primary"
+          onClick={loadContradictions}
+          disabled={loading}
+        >
+          {loading ? "Checking..." : "Find contradictions"}
+        </button>
+      </div>
 
-        <div className="panel">
-          <button
-            className="btn primary"
-            onClick={loadContradictions}
-            disabled={loading}
-          >
-            {loading ? "Checking..." : "Find contradictions"}
-          </button>
-        </div>
-
-        <div className="panel">
-          <h2>Potential conflicts</h2>
-          <div className="list">
-            {items.length === 0 ? (
-              <p className="muted">No contradictions found yet.</p>
-            ) : (
-              items.map((item, idx) => (
-                <div key={idx} className="note">
-                  <strong>Claim A</strong>
-                  <p>{item.claim_a}</p>
-                  <strong>Claim B</strong>
-                  <p>{item.claim_b}</p>
-                  <div className="note-meta">
-                    <span>Notes: {item.note_ids.join(", ")}</span>
-                  </div>
+      <div className="panel">
+        <h2>Potential conflicts</h2>
+        <div className="list">
+          {items.length === 0 ? (
+            <p className="muted">No contradictions found yet.</p>
+          ) : (
+            items.map((item, idx) => (
+              <div key={idx} className="note">
+                <strong>Claim A</strong>
+                <p>{item.claim_a}</p>
+                <strong>Claim B</strong>
+                <p>{item.claim_b}</p>
+                <div className="note-meta">
+                  <span>Notes: {item.note_ids.join(", ")}</span>
                 </div>
-              ))
-            )}
-          </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

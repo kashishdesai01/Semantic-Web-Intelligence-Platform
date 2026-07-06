@@ -4,6 +4,7 @@ import { embedText } from "../services/embeddings";
 import { pgPool } from "../dbpg";
 import { callJson } from "../services/ai";
 import rateLimit from "express-rate-limit";
+import crypto from "crypto";
 import { cacheGet, cacheSet, consumeDailyBudget } from "../queue";
 
 const router = Router();
@@ -12,25 +13,20 @@ const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
   keyGenerator: (req) =>
-    String((req as any).user?.id || req.ip),
+    String(req.user?.id || req.ip),
 });
 
 // POST /api/ask { question }
 router.post("/", requireAuth, limiter, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const { question } = req.body || {};
   if (!question) return res.status(400).json({ error: "question is required" });
-
-  const budgetKey = `budget:ask:${userId}`;
-  const budget = await consumeDailyBudget(
-    budgetKey,
-    Number(process.env.DAILY_ASK_LIMIT || 50)
-  );
-  if (!budget.ok) {
-    return res.status(429).json({ error: "Daily ask limit reached" });
+  if (typeof question !== "string" || question.length > 2000) {
+    return res.status(400).json({ error: "Question too long (max 2000 chars)" });
   }
 
-  const cacheKey = `ask:${userId}:${question}`;
+  const inputHash = crypto.createHash("sha256").update(question).digest("hex").slice(0, 16);
+  const cacheKey = `ask:${userId}:${inputHash}`;
   const cached = await cacheGet(cacheKey);
   if (cached) {
     return res.json(cached);
@@ -97,6 +93,17 @@ ${notesContext}
       citations: { note_id: number; title: string; url: string; highlights: string[] }[];
       answer_with_citations: string;
     }>(prompt);
+
+    // Consume budget after success so failed LLM calls don't waste quota
+    const budgetKey = `budget:ask:${userId}`;
+    const budget = await consumeDailyBudget(
+      budgetKey,
+      Number(process.env.DAILY_ASK_LIMIT || 50)
+    );
+    if (!budget.ok) {
+      // Still return the result this time, but warn the user they're at limit
+      return res.json({ ...json, _budget_warning: "Daily ask limit reached" });
+    }
 
     await cacheSet(cacheKey, json, 6 * 60 * 60);
     return res.json(json);

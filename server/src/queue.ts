@@ -13,10 +13,16 @@ export async function consumeDailyBudget(
   key: string,
   limit: number
 ): Promise<{ ok: boolean; remaining: number }> {
-  const current = await redis.incr(key);
-  if (current === 1) {
-    await redis.expire(key, 24 * 60 * 60);
-  }
+  // Atomic INCR + EXPIRE via Lua to prevent a crash between the two commands
+  // from permanently stranding the key without a TTL.
+  const current = (await redis.eval(
+    `local v = redis.call("INCR", KEYS[1])
+     if v == 1 then redis.call("EXPIRE", KEYS[1], ARGV[1]) end
+     return v`,
+    1,
+    key,
+    String(24 * 60 * 60)
+  )) as number;
   const remaining = Math.max(limit - current, 0);
   return { ok: current <= limit, remaining };
 }

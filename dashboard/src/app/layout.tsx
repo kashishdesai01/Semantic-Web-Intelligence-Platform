@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import AuthHeader from "./partials/AuthHeader";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "InsightLens",
+  title: "Semantic Web Intelligence Platform",
   description: "Summaries, insights, and a personal knowledge base.",
 };
 
@@ -30,6 +31,7 @@ export default function RootLayout({
         <div className="bg-orb orb-b" />
         <AuthHeader />
         {children}
+        <Toaster position="top-right" richColors closeButton />
       </body>
     </html>
   );

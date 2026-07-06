@@ -1,8 +1,5 @@
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { openai } from "./openaiClient";
+import { extractJson, fixInvalidBackslashes } from "./ai";
 
 export type SummarizeInput = {
   title?: string;
@@ -59,16 +56,18 @@ ${content}
 `.trim();
 
   const response = await openai.responses.create({
-    model: "gpt-4o-mini", // or another model you prefer
+    model: "gpt-4o-mini",
     input: prompt,
   });
 
-  const raw = response.output_text; // helper that concatenates text output
+  const raw = response.output_text;
 
   let parsed: SummarizeResult;
 
   try {
-    parsed = JSON.parse(raw);
+    const cleaned = extractJson(raw);
+    const normalized = fixInvalidBackslashes(cleaned);
+    parsed = JSON.parse(normalized);
   } catch (err) {
     console.error("Failed to parse LLM JSON, raw output:", raw);
     // Graceful fallback: wrap raw text as summary

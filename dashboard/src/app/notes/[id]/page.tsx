@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { apiFetch, getToken } from "@/lib/api";
 import { useRouter, useParams } from "next/navigation";
+import PageShell from "@/components/layout/PageShell";
 
 type Note = {
   id: number;
@@ -44,82 +45,65 @@ export default function NoteDetailPage() {
     }
   }
 
-  function logout() {
-    clearToken();
-    router.replace("/login");
-  }
 
   if (error) {
     return (
-      <div className="page">
-        <div style={{ width: "min(900px, 100%)" }}>
-          <p className="muted">{error}</p>
-        </div>
-      </div>
+      <PageShell title="Note">
+        <p className="muted">{error}</p>
+      </PageShell>
     );
   }
 
   if (!note) {
     return (
-      <div className="page">
-        <div style={{ width: "min(900px, 100%)" }}>
-          <p className="muted">Loading...</p>
-        </div>
-      </div>
+      <PageShell title="Note">
+        <p className="muted">Loading...</p>
+      </PageShell>
     );
   }
 
   return (
-    <div className="page">
-      <div style={{ width: "min(900px, 100%)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <h1>{note.title || "Untitled"}</h1>
-          <button className="btn ghost" onClick={logout}>
-            Sign out
-          </button>
+    <PageShell title={note.title || "Untitled"}>
+      <div className="panel">
+        <div className="note-meta">
+          <span>{note.domain || "Unknown domain"}</span>
+          <span>{new Date(note.created_at).toLocaleString()}</span>
+          <a href={note.url} target="_blank" rel="noreferrer">
+            Open source
+          </a>
         </div>
-
-        <div className="panel">
-          <div className="note-meta">
-            <span>{note.domain || "Unknown domain"}</span>
-            <span>{new Date(note.created_at).toLocaleString()}</span>
-            <a href={note.url} target="_blank" rel="noreferrer">
-              Open source
-            </a>
-          </div>
-          <p style={{ marginTop: 12 }}>{note.summary}</p>
-        </div>
-
-        <div className="panel">
-          <h2>Key insights</h2>
-          <ul className="list">
-            {note.key_insights?.length ? (
-              note.key_insights.map((insight, idx) => (
-                <li key={idx} className="note">
-                  {insight}
-                </li>
-              ))
-            ) : (
-              <p className="muted">No key insights yet.</p>
-            )}
-          </ul>
-        </div>
-
-        <div className="panel">
-          <h2>Highlights</h2>
-          <ul className="list">
-            {note.highlights?.length ? (
-              note.highlights.map((h, idx) => (
-                <li key={idx} className="note">
-                  {h}
-                </li>
-              ))
-            ) : (
-              <p className="muted">No highlights yet.</p>
-            )}
-          </ul>
-        </div>
+        <p style={{ marginTop: 12 }}>{note.summary}</p>
       </div>
-    </div>
+
+      <div className="panel">
+        <h2>Key insights</h2>
+        <ul className="list">
+          {note.key_insights?.length ? (
+            note.key_insights.map((insight, idx) => (
+              <li key={idx} className="note">
+                {insight}
+              </li>
+            ))
+          ) : (
+            <p className="muted">No key insights yet.</p>
+          )}
+        </ul>
+      </div>
+
+      <div className="panel">
+        <h2>Highlights</h2>
+        <ul className="list">
+          {note.highlights?.length ? (
+            note.highlights.map((h, idx) => (
+              <li key={idx} className="note">
+                {h}
+              </li>
+            ))
+          ) : (
+            <p className="muted">No highlights yet.</p>
+          )}
+        </ul>
+      </div>
+    </PageShell>
   );
 }

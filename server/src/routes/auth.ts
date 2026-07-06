@@ -11,8 +11,8 @@ const router = Router();
 const authLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
-  keyGenerator: (req) =>
-    String((req as any).body?.email || req.ip),
+  // Always key on IP — keying on email allows bypass by rotating addresses
+  keyGenerator: (req) => req.ip ?? "unknown",
 });
 
 function normalizeEmail(email: string) {
@@ -123,7 +123,7 @@ router.post("/login", authLimiter, async (req, res) => {
 });
 
 router.get("/me", requireAuth, async (req, res) => {
-  const user = (req as unknown as { user: { id: number; email: string; name: string } }).user;
+  const user = req.user!;
   return res.json({ user });
 });
 

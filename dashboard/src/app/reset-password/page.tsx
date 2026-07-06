@@ -42,18 +42,19 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page auth-page page-animate">
       <div className="auth-card">
         <h2>Choose a new password</h2>
         <p className="muted">
           Must be at least 8 characters, include 1 uppercase letter, 1 number,
           and 1 special character.
         </p>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="form-stack">
           <label htmlFor="password">New password</label>
           <input
             id="password"
             type="password"
+            className="input-lg"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
@@ -62,6 +63,7 @@ export default function ResetPasswordPage() {
           <input
             id="confirm"
             type="password"
+            className="input-lg"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
             required

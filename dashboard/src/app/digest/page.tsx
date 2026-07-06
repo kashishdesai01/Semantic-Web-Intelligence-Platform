@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import { pollJob } from "@/lib/jobs";
-import { useRouter } from "next/navigation";
+import PageShell from "@/components/layout/PageShell";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 
 type Digest = {
   summary: string;
@@ -11,24 +12,22 @@ type Digest = {
 };
 
 export default function DigestPage() {
-  const router = useRouter();
+  useRequireAuth();
   const [digest, setDigest] = useState<Digest | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pollCancelRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-    }
-  }, [router]);
+  useEffect(() => () => pollCancelRef.current?.(), []);
 
   async function generateDigest() {
     setLoading(true);
     setError(null);
+    pollCancelRef.current?.();
     try {
       const res = await apiFetch<any>("/api/digest/weekly");
       if (res?.status === "queued") {
-        pollJob<Digest>(
+        pollCancelRef.current = pollJob<Digest>(
           apiFetch,
           res.job_id,
           (result) => setDigest(result),
@@ -44,48 +43,34 @@ export default function DigestPage() {
     }
   }
 
-  function logout() {
-    clearToken();
-    router.replace("/login");
-  }
-
   return (
-    <div className="page">
-      <div style={{ width: "min(1100px, 100%)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <h1>Weekly digest</h1>
-          <button className="btn ghost" onClick={logout}>
-            Sign out
-          </button>
-        </div>
+    <PageShell title="Weekly digest">
+      {error ? <p className="muted">{error}</p> : null}
 
-        {error ? <p className="muted">{error}</p> : null}
-
-        <div className="panel">
-          <button className="btn primary" onClick={generateDigest} disabled={loading}>
-            {loading ? "Generating..." : "Generate this week’s digest"}
-          </button>
-        </div>
-
-        {digest ? (
-          <div className="panel">
-            <h2>Summary</h2>
-            <p>{digest.summary}</p>
-            <h2 style={{ marginTop: 16 }}>Themes</h2>
-            <div className="list">
-              {digest.themes.map((theme, idx) => (
-                <div key={idx} className="note">
-                  <strong>{theme.title}</strong>
-                  <p style={{ marginTop: 6 }}>{theme.summary}</p>
-                  <div className="note-meta">
-                    <span>Notes: {theme.note_ids.join(", ")}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
+      <div className="panel">
+        <button className="btn primary" onClick={generateDigest} disabled={loading}>
+          {loading ? "Generating..." : "Generate this week's digest"}
+        </button>
       </div>
-    </div>
+
+      {digest ? (
+        <div className="panel">
+          <h2>Summary</h2>
+          <p>{digest.summary}</p>
+          <h2 style={{ marginTop: 16 }}>Themes</h2>
+          <div className="list">
+            {digest.themes.map((theme, idx) => (
+              <div key={idx} className="note">
+                <strong>{theme.title}</strong>
+                <p style={{ marginTop: 6 }}>{theme.summary}</p>
+                <div className="note-meta">
+                  <span>Notes: {theme.note_ids.join(", ")}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </PageShell>
   );
 }

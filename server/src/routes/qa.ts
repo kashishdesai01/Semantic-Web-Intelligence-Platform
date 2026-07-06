@@ -6,7 +6,7 @@ const router = Router();
 
 // GET /api/qa?limit=50
 router.get("/", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const limit = Math.min(Number(req.query.limit) || 50, 200);
   const client = await pgPool.connect();
   try {
@@ -31,7 +31,7 @@ router.get("/", requireAuth, async (req, res) => {
 
 // POST /api/qa
 router.post("/", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const { question, answer, answer_with_citations, citations } = req.body || {};
   if (!question || !answer) {
     return res.status(400).json({ error: "question and answer required" });

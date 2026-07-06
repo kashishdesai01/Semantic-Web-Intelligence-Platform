@@ -1,6 +1,4 @@
-import "express-serve-static-core";
-
-declare module "express-serve-static-core" {
+declare namespace Express {
   interface Request {
     user?: {
       id: number;

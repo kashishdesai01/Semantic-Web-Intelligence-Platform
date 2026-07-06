@@ -31,15 +31,16 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page auth-page page-animate">
       <div className="auth-card">
         <h2>Create your account</h2>
         <p className="muted">Start building your reading intelligence.</p>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="form-stack">
           <label htmlFor="name">Name</label>
           <input
             id="name"
             type="text"
+            className="input-lg"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
@@ -48,6 +49,7 @@ export default function RegisterPage() {
           <input
             id="email"
             type="email"
+            className="input-lg"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -56,6 +58,7 @@ export default function RegisterPage() {
           <input
             id="password"
             type="password"
+            className="input-lg"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required

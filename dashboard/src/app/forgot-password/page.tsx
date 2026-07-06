@@ -36,15 +36,16 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page auth-page page-animate">
       <div className="auth-card">
         <h2>Reset your password</h2>
         <p className="muted">Enter your email to receive a reset link.</p>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="form-stack">
           <label htmlFor="email">Email</label>
           <input
             id="email"
             type="email"
+            className="input-lg"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required

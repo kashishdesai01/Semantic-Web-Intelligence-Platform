@@ -1,31 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { apiFetch } from "@/lib/api";
 import { pollJob } from "@/lib/jobs";
-import { useRouter } from "next/navigation";
+import PageShell from "@/components/layout/PageShell";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 
 type Recommendation = { title: string; reason: string; note_ids: number[] };
 
 export default function RecommendationsPage() {
-  const router = useRouter();
+  useRequireAuth();
   const [items, setItems] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const pollCancelRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-    }
-  }, [router]);
+  useEffect(() => () => pollCancelRef.current?.(), []);
 
   async function loadRecommendations() {
     setLoading(true);
     setError(null);
+    pollCancelRef.current?.();
     try {
       const res = await apiFetch<any>("/api/recommendations");
       if (res?.status === "queued") {
-        pollJob<{ recommendations: Recommendation[] }>(
+        pollCancelRef.current = pollJob<{ recommendations: Recommendation[] }>(
           apiFetch,
           res.job_id,
           (result) => setItems(result.recommendations || []),
@@ -41,52 +40,38 @@ export default function RecommendationsPage() {
     }
   }
 
-  function logout() {
-    clearToken();
-    router.replace("/login");
-  }
-
   return (
-    <div className="page">
-      <div style={{ width: "min(1100px, 100%)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <h1>Recommendations</h1>
-          <button className="btn ghost" onClick={logout}>
-            Sign out
-          </button>
-        </div>
+    <PageShell title="Recommendations">
+      {error ? <p className="muted">{error}</p> : null}
 
-        {error ? <p className="muted">{error}</p> : null}
+      <div className="panel">
+        <button
+          className="btn primary"
+          onClick={loadRecommendations}
+          disabled={loading}
+        >
+          {loading ? "Generating..." : "Generate recommendations"}
+        </button>
+      </div>
 
-        <div className="panel">
-          <button
-            className="btn primary"
-            onClick={loadRecommendations}
-            disabled={loading}
-          >
-            {loading ? "Generating..." : "Generate recommendations"}
-          </button>
-        </div>
-
-        <div className="panel">
-          <h2>What to read next</h2>
-          <div className="list">
-            {items.length === 0 ? (
-              <p className="muted">No recommendations yet.</p>
-            ) : (
-              items.map((rec, idx) => (
-                <div key={idx} className="note">
-                  <strong>{rec.title}</strong>
-                  <p style={{ marginTop: 6 }}>{rec.reason}</p>
-                  <div className="note-meta">
-                    <span>Related notes: {rec.note_ids.join(", ")}</span>
-                  </div>
+      <div className="panel">
+        <h2>What to read next</h2>
+        <div className="list">
+          {items.length === 0 ? (
+            <p className="muted">No recommendations yet.</p>
+          ) : (
+            items.map((rec, idx) => (
+              <div key={idx} className="note">
+                <strong>{rec.title}</strong>
+                <p style={{ marginTop: 6 }}>{rec.reason}</p>
+                <div className="note-meta">
+                  <span>Related notes: {rec.note_ids.join(", ")}</span>
                 </div>
-              ))
-            )}
-          </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

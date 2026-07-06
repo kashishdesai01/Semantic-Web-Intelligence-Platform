@@ -1,8 +1,4 @@
-import OpenAI from "openai";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { openai } from "./openaiClient";
 
 export async function callJson<T>(prompt: string): Promise<T> {
   if (!process.env.OPENAI_API_KEY) {
@@ -25,7 +21,7 @@ export async function callJson<T>(prompt: string): Promise<T> {
   }
 }
 
-function extractJson(raw: string): string {
+export function extractJson(raw: string): string {
   const trimmed = raw.trim();
   const withoutFences = trimmed
     .replace(/^```json\s*/i, "")
@@ -57,7 +53,7 @@ function extractJson(raw: string): string {
   return withoutFences;
 }
 
-function fixInvalidBackslashes(input: string): string {
+export function fixInvalidBackslashes(input: string): string {
   let out = "";
   for (let i = 0; i < input.length; i += 1) {
     const ch = input[i];

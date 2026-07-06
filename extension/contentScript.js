@@ -1,5 +1,4 @@
 // contentScript.js
-console.log("InsightLens content script loaded:", window.location.href);
 function cleanText(text) {
   return text
     .replace(/\s+\n/g, "\n")

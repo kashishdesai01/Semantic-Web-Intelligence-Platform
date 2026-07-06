@@ -7,15 +7,16 @@ import {
   forceManyBody,
   forceSimulation,
 } from "d3-force";
-import { apiFetch, clearToken, getToken } from "@/lib/api";
+import { apiFetch } from "@/lib/api";
 import { pollJob } from "@/lib/jobs";
-import { useRouter } from "next/navigation";
+import PageShell from "@/components/layout/PageShell";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 
 type Node = { id: string; label: string; type: string };
 type Edge = { source: string; target: string; label: string };
 
 export default function GraphPage() {
-  const router = useRouter();
+  useRequireAuth();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [edges, setEdges] = useState<Edge[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,6 +26,9 @@ export default function GraphPage() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const transformRef = useRef({ x: 0, y: 0, k: 1 });
+  // selectedNodeRef lets the canvas render loop read the current selection
+  // without forcing the D3 simulation to restart on every click.
+  const selectedNodeRef = useRef<Node | null>(null);
   const draggingRef = useRef<{
     active: boolean;
     startX: number;
@@ -32,20 +36,20 @@ export default function GraphPage() {
     offsetX: number;
     offsetY: number;
   }>({ active: false, startX: 0, startY: 0, offsetX: 0, offsetY: 0 });
+  // Holds the active job poller's cancel fn so we can stop it on unmount.
+  const pollCancelRef = useRef<(() => void) | null>(null);
 
-  useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-    }
-  }, [router]);
+  // Stop polling if the user navigates away mid-job.
+  useEffect(() => () => pollCancelRef.current?.(), []);
 
   async function loadGraph() {
     setLoading(true);
     setError(null);
+    pollCancelRef.current?.();
     try {
       const res = await apiFetch<any>("/api/graph");
       if (res?.status === "queued") {
-        pollJob<{ nodes: Node[]; edges: Edge[] }>(
+        pollCancelRef.current = pollJob<{ nodes: Node[]; edges: Edge[] }>(
           apiFetch,
           res.job_id,
           (result) => {
@@ -136,7 +140,7 @@ export default function GraphPage() {
         ctx.arc(node.x, node.y, 8, 0, Math.PI * 2);
         ctx.fill();
 
-        if (selectedNode && node.id === selectedNode.id) {
+        if (selectedNodeRef.current && node.id === selectedNodeRef.current.id) {
           ctx.strokeStyle = "#ffffff";
           ctx.lineWidth = 2;
           ctx.beginPath();
@@ -183,6 +187,7 @@ export default function GraphPage() {
       });
 
       if (hit) {
+        selectedNodeRef.current = hit;
         setSelectedNode(hit);
         const connected = edgeList.filter(
           (edge) => edge.source === hit.id || edge.target === hit.id
@@ -230,78 +235,64 @@ export default function GraphPage() {
       window.removeEventListener("mousemove", handleMove);
       window.removeEventListener("mouseup", handleUp);
     };
-  }, [nodes, edgeList, selectedNode]);
-
-  function logout() {
-    clearToken();
-    router.replace("/login");
-  }
+  }, [nodes, edgeList]);
 
   return (
-    <div className="page">
-      <div style={{ width: "min(1100px, 100%)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <h1>Knowledge graph</h1>
-          <button className="btn ghost" onClick={logout}>
-            Sign out
+    <PageShell title="Knowledge graph">
+      {error ? <p className="muted">{error}</p> : null}
+
+      <div className="panel">
+        <div className="row-between">
+          <button className="btn primary" onClick={loadGraph} disabled={loading}>
+            {loading ? "Building graph..." : "Generate graph"}
           </button>
-        </div>
-
-        {error ? <p className="muted">{error}</p> : null}
-
-        <div className="panel">
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <button className="btn primary" onClick={loadGraph} disabled={loading}>
-              {loading ? "Building graph..." : "Generate graph"}
-            </button>
-            <div className="muted">
-              Drag to pan, scroll to zoom, click nodes to inspect.
-            </div>
-          </div>
-          <div
-            ref={containerRef}
-            style={{
-              marginTop: 12,
-              borderRadius: 18,
-              border: "1px solid rgba(255,255,255,0.08)",
-              overflow: "hidden",
-            }}
-          >
-            <canvas ref={canvasRef} />
+          <div className="muted">
+            Drag to pan, scroll to zoom, click nodes to inspect.
           </div>
         </div>
-
-        <div className="panel">
-          <h2>Selected node</h2>
-          {selectedNode ? (
-            <div className="note">
-              <strong>{selectedNode.label}</strong>
-              <div className="note-meta">
-                <span>{selectedNode.type}</span>
-                <span>{selectedNode.id}</span>
-              </div>
-              <div className="list" style={{ marginTop: 10 }}>
-                {connectedEdges.length === 0 ? (
-                  <p className="muted">No connected edges.</p>
-                ) : (
-                  connectedEdges.map((edge, idx) => (
-                    <div key={`${edge.source}-${edge.target}-${idx}`} className="note">
-                      <strong>
-                        {edge.source} → {edge.target}
-                      </strong>
-                      <div className="note-meta">
-                        <span>{edge.label}</span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          ) : (
-            <p className="muted">Click a node to inspect relationships.</p>
-          )}
+        <div
+          ref={containerRef}
+          style={{
+            marginTop: 12,
+            borderRadius: 18,
+            border: "1px solid rgba(255,255,255,0.08)",
+            overflow: "hidden",
+          }}
+        >
+          <canvas ref={canvasRef} />
         </div>
       </div>
-    </div>
+
+      <div className="panel">
+        <h2>Selected node</h2>
+        {selectedNode ? (
+          <div className="note">
+            <strong>{selectedNode.label}</strong>
+            <div className="note-meta">
+              <span>{selectedNode.type}</span>
+              <span>{selectedNode.id}</span>
+            </div>
+            <div className="list" style={{ marginTop: 10 }}>
+              {connectedEdges.length === 0 ? (
+                <p className="muted">No connected edges.</p>
+              ) : (
+                connectedEdges.map((edge, idx) => (
+                  <div key={`${edge.source}-${edge.target}-${idx}`} className="note">
+                    <strong>
+                      {edge.source} → {edge.target}
+                    </strong>
+                    <div className="note-meta">
+                      <span>{edge.label}</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="muted">Click a node to inspect relationships.</p>
+        )}
+      </div>
+    </PageShell>
   );
 }

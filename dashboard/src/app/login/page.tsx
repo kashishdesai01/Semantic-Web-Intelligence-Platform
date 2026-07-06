@@ -30,15 +30,16 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="page">
+    <div className="page auth-page page-animate">
       <div className="auth-card">
         <h2>Welcome back</h2>
-        <p className="muted">Sign in to your InsightLens dashboard.</p>
-        <form onSubmit={handleSubmit}>
+        <p className="muted">Sign in to your Semantic Web Intelligence Platform dashboard.</p>
+        <form onSubmit={handleSubmit} className="form-stack">
           <label htmlFor="email">Email</label>
           <input
             id="email"
             type="email"
+            className="input-lg"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -47,6 +48,7 @@ export default function LoginPage() {
           <input
             id="password"
             type="password"
+            className="input-lg"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required

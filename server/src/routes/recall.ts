@@ -4,6 +4,7 @@ import { embedText } from "../services/embeddings";
 import { pgPool } from "../dbpg";
 import { callJson } from "../services/ai";
 import rateLimit from "express-rate-limit";
+import crypto from "crypto";
 import { cacheGet, cacheSet, consumeDailyBudget } from "../queue";
 
 const router = Router();
@@ -12,25 +13,20 @@ const limiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20,
   keyGenerator: (req) =>
-    String((req as any).user?.id || req.ip),
+    String(req.user?.id || req.ip),
 });
 
 // POST /api/recall { query }
 router.post("/", requireAuth, limiter, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const { query } = req.body || {};
   if (!query) return res.status(400).json({ error: "query is required" });
-
-  const budgetKey = `budget:recall:${userId}`;
-  const budget = await consumeDailyBudget(
-    budgetKey,
-    Number(process.env.DAILY_RECALL_LIMIT || 50)
-  );
-  if (!budget.ok) {
-    return res.status(429).json({ error: "Daily recall limit reached" });
+  if (typeof query !== "string" || query.length > 2000) {
+    return res.status(400).json({ error: "Query too long (max 2000 chars)" });
   }
 
-  const cacheKey = `recall:${userId}:${query}`;
+  const inputHash = crypto.createHash("sha256").update(query).digest("hex").slice(0, 16);
+  const cacheKey = `recall:${userId}:${inputHash}`;
   const cached = await cacheGet(cacheKey);
   if (cached) {
     return res.json(cached);
@@ -94,6 +90,16 @@ ${notesContext}
       answer: string;
       sources: { note_id: number; title: string; url: string; highlights: string[] }[];
     }>(prompt);
+
+    // Consume budget after success so failed LLM calls don't waste quota
+    const budgetKey = `budget:recall:${userId}`;
+    const budget = await consumeDailyBudget(
+      budgetKey,
+      Number(process.env.DAILY_RECALL_LIMIT || 50)
+    );
+    if (!budget.ok) {
+      return res.json({ ...json, _budget_warning: "Daily recall limit reached" });
+    }
 
     await cacheSet(cacheKey, json, 6 * 60 * 60);
     return res.json(json);

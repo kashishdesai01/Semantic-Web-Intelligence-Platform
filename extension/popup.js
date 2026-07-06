@@ -15,6 +15,7 @@ const passwordInput = document.getElementById("password");
 const loginButton = document.getElementById("loginButton");
 const logoutButton = document.getElementById("logoutButton");
 const openDashboardButton = document.getElementById("openDashboardButton");
+const retryButton = document.getElementById("retryButton");
 
 if (
   !summarizeButton ||
@@ -31,17 +32,25 @@ if (
   !passwordInput ||
   !loginButton ||
   !logoutButton ||
-  !openDashboardButton
+  !openDashboardButton ||
+  !retryButton
 ) {
   console.error(
     "Popup DOM elements missing. Check popup.html IDs: summarizeButton, saveButton, status, result, summaryText, insightsList."
   );
+  throw new Error("Popup failed to initialize: missing DOM elements.");
 }
 
-let lastPayload = null;
+const DASHBOARD_URL =
+  typeof __DASHBOARD_URL__ !== "undefined"
+    ? __DASHBOARD_URL__
+    : "http://localhost:3000";
 let authToken = null;
 let authEmail = null;
 let authPromptVisible = false;
+let lastPayload = null;
+// The last failed async action, so the Retry button can re-run it.
+let lastAction = null;
 
 function setAuthUI() {
   if (authToken) {
@@ -82,9 +91,21 @@ function clearAuth() {
   });
 }
 
-function setStatus(text, isError = false) {
+// busy => show spinner; isError => red text. Theme-aware (the popup is dark).
+function setStatus(text, { isError = false, busy = false } = {}) {
   statusDiv.textContent = text;
-  statusDiv.style.color = isError ? "red" : "black";
+  statusDiv.classList.toggle("error", isError);
+  statusDiv.classList.toggle("busy", busy);
+}
+
+function showRetry(action) {
+  lastAction = action;
+  retryButton.classList.remove("hidden");
+}
+
+function hideRetry() {
+  lastAction = null;
+  retryButton.classList.add("hidden");
 }
 
 function showResult(summary, keyInsights, highlights) {
@@ -174,11 +195,12 @@ loginButton.addEventListener("click", async () => {
   const email = emailInput.value.trim();
   const password = passwordInput.value;
   if (!email || !password) {
-    setStatus("Email and password required.", true);
+    setStatus("Email and password required.", { isError: true });
     return;
   }
 
-  setStatus("Signing in...");
+  loginButton.disabled = true;
+  setStatus("Signing in...", { busy: true });
   try {
     const response = await sendMessageToBackground({
       type: "AUTH_LOGIN",
@@ -186,7 +208,7 @@ loginButton.addEventListener("click", async () => {
     });
 
     if (!response?.ok) {
-      setStatus(response?.error || "Login failed", true);
+      setStatus(response?.error || "Login failed", { isError: true });
       return;
     }
 
@@ -197,7 +219,9 @@ loginButton.addEventListener("click", async () => {
     setStatus("Signed in.");
   } catch (err) {
     console.error("Login error:", err);
-    setStatus("Login failed.", true);
+    setStatus("Login failed.", { isError: true });
+  } finally {
+    loginButton.disabled = false;
   }
 });
 
@@ -210,97 +234,112 @@ logoutButton.addEventListener("click", async () => {
 });
 
 openDashboardButton.addEventListener("click", async () => {
-  chrome.tabs.create({ url: "http://localhost:3000" });
+  chrome.tabs.create({ url: DASHBOARD_URL });
 });
 
-summarizeButton.addEventListener("click", async () => {
-  console.log("Summarize clicked");
-  setStatus("Reading page content...");
+retryButton.addEventListener("click", () => {
+  const action = lastAction;
+  hideRetry();
+  if (action) action();
+});
+
+async function runSummarize() {
+  hideRetry();
   resultDiv.classList.add("hidden");
   saveButton.disabled = true;
   lastPayload = null;
+  summarizeButton.disabled = true;
+  setStatus("Reading page content...", { busy: true });
 
-  const tabId = await getActiveTabId();
-  if (!tabId) {
-    setStatus("No active tab found.", true);
-    return;
-  }
-
-  // Inject content script (reliable even if auto-injection fails)
   try {
-    await injectContentScript(tabId);
-  } catch (err) {
-    console.error("Injection failed:", err);
-    setStatus(
-      "Cannot inject content script on this page. Try a normal https:// page.",
-      true
-    );
-    return;
+    const tabId = await getActiveTabId();
+    if (!tabId) {
+      setStatus("No active tab found.", { isError: true });
+      return;
+    }
+
+    try {
+      await injectContentScript(tabId);
+    } catch (err) {
+      console.error("Injection failed:", err);
+      setStatus(
+        "Cannot summarize this page. Try a normal https:// page.",
+        { isError: true }
+      );
+      return;
+    }
+
+    let content;
+    try {
+      content = await sendMessageToTab(tabId, { type: "GET_PAGE_CONTENT" });
+    } catch (err) {
+      console.error("Content script error:", err);
+      setStatus("Content script not responding.", { isError: true });
+      showRetry(runSummarize);
+      return;
+    }
+
+    if (!content) {
+      setStatus("Unable to read page content.", { isError: true });
+      return;
+    }
+
+    setStatus("Summarizing...", { busy: true });
+
+    let response;
+    try {
+      response = await sendMessageToBackground({
+        type: "FETCH_SUMMARY",
+        payload: {
+          title: content.title,
+          url: content.url,
+          bodyText: content.bodyText,
+        },
+      });
+    } catch (err) {
+      console.error("Background message error:", err);
+      setStatus("Background service worker error.", { isError: true });
+      showRetry(runSummarize);
+      return;
+    }
+
+    if (!response?.ok) {
+      console.error("Summarize failed:", response);
+      setStatus(response?.error || "Summarize failed", { isError: true });
+      showRetry(runSummarize);
+      return;
+    }
+
+    const data = response.data;
+    showResult(data.summary, data.key_insights || [], data.highlights || []);
+    setStatus("Done.");
+
+    lastPayload = {
+      title: content.title,
+      url: content.url,
+      summary: data.summary,
+      key_insights: data.key_insights || [],
+      highlights: data.highlights || [],
+    };
+
+    saveButton.disabled = false;
+  } finally {
+    summarizeButton.disabled = false;
   }
+}
 
-  let content;
-  try {
-    content = await sendMessageToTab(tabId, { type: "GET_PAGE_CONTENT" });
-  } catch (err) {
-    console.error("Content script error:", err);
-    setStatus("Content script not responding.", true);
-    return;
-  }
-
-  if (!content) {
-    setStatus("Unable to read page content.", true);
-    return;
-  }
-
-  setStatus("Summarizing...");
-
-  let response;
-  try {
-    response = await sendMessageToBackground({
-      type: "FETCH_SUMMARY",
-      payload: {
-        title: content.title,
-        url: content.url,
-        bodyText: content.bodyText,
-      },
-    });
-  } catch (err) {
-    console.error("Background message error:", err);
-    setStatus("Background service worker error.", true);
-    return;
-  }
-
-  if (!response?.ok) {
-    console.error("Summarize failed:", response);
-    setStatus(response?.error || "Summarize failed", true);
-    return;
-  }
-
-  const data = response.data;
-  showResult(data.summary, data.key_insights || [], data.highlights || []);
-  setStatus("Done.");
-
-  lastPayload = {
-    title: content.title,
-    url: content.url,
-    summary: data.summary,
-    key_insights: data.key_insights || [],
-    highlights: data.highlights || [],
-  };
-
-  saveButton.disabled = false;
-});
-
-saveButton.addEventListener("click", async () => {
+async function runSave() {
   if (!lastPayload) return;
 
   if (!authToken) {
     showAuthPrompt();
-    setStatus("Please sign in to save notes.", true);
+    setStatus("Please sign in to save notes.", { isError: true });
     return;
   }
 
-  setStatus("Saving...");
+  hideRetry();
+  saveButton.disabled = true;
+  setStatus("Saving...", { busy: true });
 
   let response;
   try {
@@ -310,18 +349,32 @@ saveButton.addEventListener("click", async () => {
     });
   } catch (err) {
     console.error("Save error:", err);
-    setStatus("Background service worker error while saving.", true);
+    setStatus("Background service worker error while saving.", { isError: true });
+    saveButton.disabled = false;
+    showRetry(runSave);
     return;
   }
 
   if (!response?.ok) {
     console.error("Save failed:", response);
-    setStatus(response?.error || "Save failed", true);
+    setStatus(response?.error || "Save failed", { isError: true });
+    saveButton.disabled = false;
+    if (response?.code === "TOKEN_EXPIRED") {
+      authToken = null;
+      authEmail = null;
+      setAuthUI();
+      showAuthPrompt();
+    } else {
+      showRetry(runSave);
+    }
     return;
   }
 
-  setStatus(`Saved. Note ID: ${response.data.note_id}`);
+  setStatus("Saved ✓");
   saveButton.disabled = true;
-});
+}
+
+summarizeButton.addEventListener("click", runSummarize);
+saveButton.addEventListener("click", runSave);
 
 loadAuth();

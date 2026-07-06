@@ -5,7 +5,7 @@ import { requireAuth } from "../middleware/auth";
 const router = Router();
 
 router.get("/", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const client = await pgPool.connect();
   try {
     const result = await client.query(
@@ -27,7 +27,7 @@ router.get("/", requireAuth, async (req, res) => {
 });
 
 router.post("/", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const { name } = req.body || {};
   if (!name) return res.status(400).json({ error: "name is required" });
 
@@ -54,7 +54,7 @@ router.post("/", requireAuth, async (req, res) => {
 });
 
 router.get("/:id/notes", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const collectionId = Number(req.params.id);
   if (!Number.isFinite(collectionId)) {
     return res.status(400).json({ error: "Invalid collection id" });
@@ -85,7 +85,7 @@ router.get("/:id/notes", requireAuth, async (req, res) => {
 });
 
 router.post("/:id/notes", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const collectionId = Number(req.params.id);
   const { note_id } = req.body || {};
   if (!Number.isFinite(collectionId) || !note_id) {
@@ -126,7 +126,7 @@ router.post("/:id/notes", requireAuth, async (req, res) => {
 });
 
 router.delete("/:id/notes/:noteId", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const collectionId = Number(req.params.id);
   const noteId = Number(req.params.noteId);
   if (!Number.isFinite(collectionId) || !Number.isFinite(noteId)) {
@@ -159,7 +159,7 @@ router.delete("/:id/notes/:noteId", requireAuth, async (req, res) => {
 });
 
 router.delete("/:id", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const collectionId = Number(req.params.id);
   if (!Number.isFinite(collectionId)) {
     return res.status(400).json({ error: "Invalid collection id" });

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "InsightLens Reader",
+  "name": "Semantic Web Intelligence Platform",
   "version": "0.1.0",
   "description": "Summarize, extract insights, and save notes from any page.",
   "permissions": ["scripting", "tabs", "storage", "activeTab"],
@@ -11,7 +11,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "InsightLens"
+    "default_title": "Semantic Web Intelligence Platform"
   },
   "content_scripts": [
     {

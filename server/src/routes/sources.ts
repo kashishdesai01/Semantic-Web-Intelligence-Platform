@@ -6,7 +6,7 @@ const router = Router();
 
 // GET /api/sources?limit=50
 router.get("/", requireAuth, async (req, res) => {
-  const userId = (req as unknown as { user: { id: number } }).user.id;
+  const userId = req.user!.id;
   const limit = Math.min(Number(req.query.limit) || 50, 200);
 
   const client = await pgPool.connect();

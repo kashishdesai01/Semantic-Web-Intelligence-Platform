@@ -1,25 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { apiFetch, clearToken, getToken } from "@/lib/api";
-import { useRouter } from "next/navigation";
+import { apiFetch } from "@/lib/api";
+import PageShell from "@/components/layout/PageShell";
+import type { Note, Totals } from "@/lib/types";
+import { useRequireAuth } from "@/lib/useRequireAuth";
 
-type Totals = { total_notes: number; total_sources: number };
 type NotesPerDay = { day: string; count: number };
 type TopDomain = { domain: string; count: number };
-type Note = {
-  id: number;
-  summary: string;
-  key_insights: string[];
-  created_at: string;
-  url: string;
-  title: string | null;
-  domain: string | null;
-  liked: boolean;
-};
+
 
 export default function AnalyticsPage() {
-  const router = useRouter();
+  useRequireAuth();
   const [totals, setTotals] = useState<Totals | null>(null);
   const [notesPerDay, setNotesPerDay] = useState<NotesPerDay[]>([]);
   const [topDomains, setTopDomains] = useState<TopDomain[]>([]);
@@ -31,10 +23,6 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!getToken()) {
-      router.replace("/login");
-      return;
-    }
     loadAnalytics();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -107,170 +95,156 @@ export default function AnalyticsPage() {
     return segments.join(", ");
   }, [topDomains, domainTotal]);
 
-  function logout() {
-    clearToken();
-    router.replace("/login");
-  }
-
   return (
-    <div className="page">
-      <div style={{ width: "min(1100px, 100%)" }}>
-        <div style={{ display: "flex", justifyContent: "space-between" }}>
-          <h1>Analytics</h1>
-          <button className="btn ghost" onClick={logout}>
-            Sign out
-          </button>
+    <PageShell title="Analytics">
+      {error ? <p className="muted">{error}</p> : null}
+
+      <div className="card-grid">
+        <div className="card">
+          <span className="muted">Total notes</span>
+          <strong>{totals?.total_notes ?? 0}</strong>
         </div>
-
-        {error ? <p className="muted">{error}</p> : null}
-
-        <div className="card-grid">
-          <div className="card">
-            <span className="muted">Total notes</span>
-            <strong>{totals?.total_notes ?? 0}</strong>
-          </div>
-          <div className="card">
-            <span className="muted">Total sources</span>
-            <strong>{totals?.total_sources ?? 0}</strong>
-          </div>
-          <div className="card">
-            <span className="muted">Recent notes</span>
-            <strong>{recentNotes.length}</strong>
-          </div>
+        <div className="card">
+          <span className="muted">Total sources</span>
+          <strong>{totals?.total_sources ?? 0}</strong>
         </div>
-
-        <div className="panel">
-          <h2>Most visited sites (top 5)</h2>
-          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-            <div
-              style={{
-                width: 220,
-                height: 220,
-                borderRadius: "50%",
-                background: `conic-gradient(${pieStops})`,
-                border: "1px solid rgba(255,255,255,0.08)",
-              }}
-            />
-            <div className="list" style={{ flex: 1, minWidth: 240 }}>
-              {topDomains.length === 0 ? (
-                <p className="muted">No domain data yet.</p>
-              ) : (
-                topDomains.slice(0, 5).map((row) => (
-                  <div key={row.domain} className="note">
-                    <strong>{row.domain}</strong>
-                    <div className="note-meta">
-                      <span>{row.count} notes</span>
-                    </div>
-                  </div>
-                ))
-              )}
-              {topDomains.length > 5 ? (
-                <p className="muted">+ {topDomains.length - 5} other sites</p>
-              ) : null}
-            </div>
-          </div>
+        <div className="card">
+          <span className="muted">Recent notes</span>
+          <strong>{recentNotes.length}</strong>
         </div>
+      </div>
 
-        <div className="panel">
-          <h2>Reading time (estimated)</h2>
-          <p className="muted">
-            Estimated at 5 minutes per note. We can refine this later with scroll
-            time from the extension.
-          </p>
-          <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            {(["week", "month", "6months", "year"] as const).map((label) => (
-              <button
-                key={label}
-                className={`btn ${range === label ? "primary" : "ghost"}`}
-                onClick={() => setRange(label)}
-                disabled={loading}
-              >
-                {label === "week"
-                  ? "Week"
-                  : label === "month"
-                    ? "Month"
-                    : label === "6months"
-                      ? "6 months"
-                      : "Year"}
-              </button>
-            ))}
-          </div>
-          {notesPerDay.length === 0 ? (
-            <p className="muted">No reading data yet.</p>
-          ) : (
-            <div style={{ marginTop: 12 }}>
-              <svg
-                viewBox="0 0 600 180"
-                width="100%"
-                height="220"
-                role="img"
-                aria-label="Reading time line graph"
-              >
-                <polyline
-                  fill="none"
-                  stroke="#7df9ff"
-                  strokeWidth="3"
-                  points={linePoints}
-                />
-                <polyline
-                  fill="none"
-                  stroke="rgba(125,249,255,0.25)"
-                  strokeWidth="8"
-                  points={linePoints}
-                  strokeLinecap="round"
-                />
-                {notesPerDay.map((row, idx) => {
-                  const x =
-                    notesPerDay.length === 1
-                      ? 300
-                      : (idx / (notesPerDay.length - 1)) * 600;
-                  const value = Number(row.count) || 0;
-                  const y = 180 - (value / maxNotesPerDay) * 180;
-                  return (
-                    <circle
-                      key={row.day}
-                      cx={x}
-                      cy={y}
-                      r="4"
-                      fill="#ffc857"
-                    />
-                  );
-                })}
-              </svg>
-              <div className="chart">
-                {notesPerDay.map((row) => (
-                  <div className="note-meta" key={row.day}>
-                    <span>{new Date(row.day).toLocaleDateString()}</span>
-                    <span>{Number(row.count) * 5} min</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="panel">
-          <h2>Recent notes snapshot</h2>
-          <div className="list">
-            {recentNotes.length === 0 ? (
-              <p className="muted">No notes yet.</p>
+      <div className="panel">
+        <h2>Most visited sites (top 5)</h2>
+        <div className="row">
+          <div
+            style={{
+              width: 220,
+              height: 220,
+              borderRadius: "50%",
+              background: `conic-gradient(${pieStops})`,
+              border: "1px solid rgba(255,255,255,0.08)",
+            }}
+          />
+          <div className="list" style={{ flex: 1, minWidth: 240 }}>
+            {topDomains.length === 0 ? (
+              <p className="muted">No domain data yet.</p>
             ) : (
-              recentNotes.map((note) => (
-                <div key={note.id} className="note">
-                  <p>{note.summary}</p>
+              topDomains.slice(0, 5).map((row) => (
+                <div key={row.domain} className="note">
+                  <strong>{row.domain}</strong>
                   <div className="note-meta">
-                    <span>{note.title || "Untitled"}</span>
-                    <span>{new Date(note.created_at).toLocaleString()}</span>
-                    <a href={note.url} target="_blank" rel="noreferrer">
-                      Open
-                    </a>
+                    <span>{row.count} notes</span>
                   </div>
                 </div>
               ))
             )}
+            {topDomains.length > 5 ? (
+              <p className="muted">+ {topDomains.length - 5} other sites</p>
+            ) : null}
           </div>
         </div>
       </div>
-    </div>
+
+      <div className="panel">
+        <h2>Reading time (estimated)</h2>
+        <p className="muted">
+          Estimated at 5 minutes per note. We can refine this later with scroll
+          time from the extension.
+        </p>
+        <div className="row" style={{ marginTop: 10 }}>
+          {(["week", "month", "6months", "year"] as const).map((label) => (
+            <button
+              key={label}
+              className={`btn ${range === label ? "primary" : "ghost"}`}
+              onClick={() => setRange(label)}
+              disabled={loading}
+            >
+              {label === "week"
+                ? "Week"
+                : label === "month"
+                  ? "Month"
+                  : label === "6months"
+                    ? "6 months"
+                    : "Year"}
+            </button>
+          ))}
+        </div>
+        {notesPerDay.length === 0 ? (
+          <p className="muted">No reading data yet.</p>
+        ) : (
+          <div style={{ marginTop: 12 }}>
+            <svg
+              viewBox="0 0 600 180"
+              width="100%"
+              height="220"
+              role="img"
+              aria-label="Reading time line graph"
+            >
+              <polyline
+                fill="none"
+                stroke="#7df9ff"
+                strokeWidth="3"
+                points={linePoints}
+              />
+              <polyline
+                fill="none"
+                stroke="rgba(125,249,255,0.25)"
+                strokeWidth="8"
+                points={linePoints}
+                strokeLinecap="round"
+              />
+              {notesPerDay.map((row, idx) => {
+                const x =
+                  notesPerDay.length === 1
+                    ? 300
+                    : (idx / (notesPerDay.length - 1)) * 600;
+                const value = Number(row.count) || 0;
+                const y = 180 - (value / maxNotesPerDay) * 180;
+                return (
+                  <circle
+                    key={row.day}
+                    cx={x}
+                    cy={y}
+                    r="4"
+                    fill="#ffc857"
+                  />
+                );
+              })}
+            </svg>
+            <div className="chart">
+              {notesPerDay.map((row) => (
+                <div className="note-meta" key={row.day}>
+                  <span>{new Date(row.day).toLocaleDateString()}</span>
+                  <span>{Number(row.count) * 5} min</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="panel">
+        <h2>Recent notes snapshot</h2>
+        <div className="list">
+          {recentNotes.length === 0 ? (
+            <p className="muted">No notes yet.</p>
+          ) : (
+            recentNotes.map((note) => (
+              <div key={note.id} className="note">
+                <p>{note.summary}</p>
+                <div className="note-meta">
+                  <span>{note.title || "Untitled"}</span>
+                  <span>{new Date(note.created_at).toLocaleString()}</span>
+                  <a href={note.url} target="_blank" rel="noreferrer">
+                    Open
+                  </a>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </PageShell>
   );
 }
