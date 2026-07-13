@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
   FileText,
@@ -14,6 +14,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { clearToken } from "@/lib/api";
 
 type NavItem = {
   label: string;
@@ -31,8 +32,14 @@ const NAV: NavItem[] = [
   { label: "Graph", href: "/graph", icon: Network },
 ];
 
-export function DashboardSidebar({ onSignOut }: { onSignOut?: () => void }) {
+export function DashboardSidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  function handleSignOut() {
+    clearToken();
+    router.push("/login");
+  }
 
   return (
     <aside className="flex h-full w-60 shrink-0 flex-col border-r border-border bg-surface/40">
@@ -96,7 +103,7 @@ export function DashboardSidebar({ onSignOut }: { onSignOut?: () => void }) {
           </kbd>
         </div>
         <button
-          onClick={onSignOut}
+          onClick={handleSignOut}
           className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-surface hover:text-foreground"
         >
           <LogOut className="size-4 shrink-0" />

@@ -15,7 +15,7 @@ export function pollJob<T>(
   // Capped exponential backoff so a slow job doesn't spam the server.
   let delay = 800;
   const maxDelay = 5000;
-  const deadline = Date.now() + 60_000; // give up after ~60s
+  const deadline = Date.now() + 180_000; // give up after ~3 min
 
   const tick = async () => {
     if (cancelled) return;

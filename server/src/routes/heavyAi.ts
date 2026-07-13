@@ -42,8 +42,8 @@ export function createHeavyAiRouter(config: HeavyJobConfig): Router {
       {
         removeOnComplete: 50,
         removeOnFail: 50,
-        attempts: 3,
-        backoff: { type: "exponential", delay: 30000 },
+        attempts: 2,
+        backoff: { type: "exponential", delay: 4000 },
       }
     );
 

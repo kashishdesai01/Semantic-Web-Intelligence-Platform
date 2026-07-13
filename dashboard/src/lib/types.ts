@@ -38,3 +38,44 @@ export type Totals = {
   total_notes: number;
   total_sources: number;
 };
+
+export type DigestNote = {
+  id: number;
+  title: string;
+  url: string;
+  domain: string;
+  snippet: string;
+  relevance?: number;
+};
+
+export type DigestSectionData = {
+  cluster: string;
+  noteCount: number;
+  synthesis: string;
+  notes: DigestNote[];
+};
+
+export type DigestFull = {
+  weekRange: string;
+  generatedAt: string;
+  overview: string;
+  sections: DigestSectionData[];
+};
+
+export type PastDigest = {
+  id: string;
+  weekRange: string;
+  summary: string;
+  noteCount: number;
+};
+
+export type WeekStats = {
+  notesThisWeek: number;
+  topicsCount: number;
+  sourceCount: number;
+};
+
+export type ClusterPreview = {
+  name: string;
+  count: number;
+};

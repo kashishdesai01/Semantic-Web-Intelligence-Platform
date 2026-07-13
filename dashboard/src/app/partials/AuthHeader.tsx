@@ -22,9 +22,9 @@ export default function AuthHeader() {
   }
 
   if (HIDE_ROUTES.includes(pathname)) return null;
-  // The redesigned dashboard ships its own left-sidebar app shell, so the
-  // global top nav is suppressed there.
-  if (pathname === "/dashboard") return null;
+  // Pages using the new left-sidebar shell manage their own nav — suppress
+  // the global top nav for all of them.
+  if (AUTH_APP_ROUTES.some(r => pathname === r || pathname.startsWith(r + "/"))) return null;
 
   return (
     <header className="nav">
